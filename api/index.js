@@ -1,50 +1,39 @@
 export const config = { runtime: "edge" };
 
-const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+// 🔒 Hardcode your backend (no env-based dynamic proxying)
+const TARGET_ORIGIN = "https://example.com";
 
-const HOP_BY_HOP = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
+// 🔒 Only allow specific paths (VERY IMPORTANT)
+const ALLOWED_PATHS = [
+  "/api/data",
+  "/api/user",
+  "/images/",
+];
 
 export default async function handler(req) {
-  if (!TARGET_BASE) {
-    return new Response("Misconfigured", { status: 500 });
-  }
-
   try {
     const url = new URL(req.url);
-    const targetUrl = TARGET_BASE + url.pathname + url.search;
 
-    // Build clean headers (simulate real browser → server request)
-    const headers = new Headers();
+    // 🚫 Block unknown paths
+    const isAllowed = ALLOWED_PATHS.some(p =>
+      url.pathname === p || url.pathname.startsWith(p)
+    );
 
-    // Whitelist instead of blacklist (IMPORTANT)
-    const allowedHeaders = [
-      "accept",
-      "accept-language",
-      "content-type",
-      "user-agent",
-      "authorization",
-      "cookie",
-    ];
-
-    for (const [k, v] of req.headers) {
-      if (allowedHeaders.includes(k.toLowerCase())) {
-        headers.set(k, v);
-      }
+    if (!isAllowed) {
+      return new Response("Not allowed", { status: 403 });
     }
 
-    // Normalize origin-related headers
-    const targetOrigin = new URL(TARGET_BASE).origin;
-    headers.set("origin", targetOrigin);
-    headers.set("referer", targetOrigin + "/");
+    const targetUrl = TARGET_ORIGIN + url.pathname + url.search;
+
+    // ✅ Controlled headers (not full passthrough)
+    const headers = new Headers({
+      "accept": "application/json",
+      "user-agent": req.headers.get("user-agent") || "Mozilla/5.0",
+    });
+
+    // Only forward cookies if you really need them
+    const cookie = req.headers.get("cookie");
+    if (cookie) headers.set("cookie", cookie);
 
     const method = req.method;
     const hasBody = method !== "GET" && method !== "HEAD";
@@ -53,23 +42,17 @@ export default async function handler(req) {
       method,
       headers,
       body: hasBody ? await req.arrayBuffer() : undefined,
-      redirect: "manual",
     });
 
-    // Clean response headers
-    const responseHeaders = new Headers();
-    for (const [k, v] of res.headers) {
-      if (!HOP_BY_HOP.has(k.toLowerCase())) {
-        responseHeaders.set(k, v);
-      }
-    }
-
+    // ✅ Clean response
     return new Response(res.body, {
       status: res.status,
-      headers: responseHeaders,
+      headers: {
+        "content-type": res.headers.get("content-type") || "text/plain",
+      },
     });
 
-  } catch (err) {
-    return new Response("Bad Gateway", { status: 502 });
+  } catch (e) {
+    return new Response("Error", { status: 500 });
   }
 }
