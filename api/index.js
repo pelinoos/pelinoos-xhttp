@@ -1,1 +1,75 @@
-const _0x402c51=_0x4a0d;function _0x4a0d(_0x113a84,_0x2803f1){_0x113a84=_0x113a84-0x171;const _0x7aa83e=_0x7aa8();let _0x4a0dd2=_0x7aa83e[_0x113a84];return _0x4a0dd2;}function _0x7aa8(){const _0xf5ab50=['method','5411736lJcTIW','Bad\x20Gateway:\x20Tunnel\x20Failed','1449890QgkkyS','replace','relay\x20error:','url','proxy-authorization','error','62229aWuApE','body','x-forwarded-proto','manual','x-forwarded-port','4cSWZWi','trailer','x-forwarded-for','forwarded','half','8063060NHaThc','18ZxkEcH','3474568xMkNWK','7490qTfTxy','121602uFvkWz','keep-alive','204GWQDwR','headers','GET','HEAD','upgrade','x-vercel-','set','indexOf','host','x-real-ip','edge'];_0x7aa8=function(){return _0xf5ab50;};return _0x7aa8();}(function(_0x285289,_0x3b4de3){const _0x281bc0=_0x4a0d,_0x38930c=_0x285289();while(!![]){try{const _0x40227b=parseInt(_0x281bc0(0x173))/0x1*(parseInt(_0x281bc0(0x18e))/0x2)+parseInt(_0x281bc0(0x189))/0x3+-parseInt(_0x281bc0(0x181))/0x4+-parseInt(_0x281bc0(0x183))/0x5+-parseInt(_0x281bc0(0x175))/0x6*(-parseInt(_0x281bc0(0x172))/0x7)+parseInt(_0x281bc0(0x171))/0x8+-parseInt(_0x281bc0(0x194))/0x9*(-parseInt(_0x281bc0(0x193))/0xa);if(_0x40227b===_0x3b4de3)break;else _0x38930c['push'](_0x38930c['shift']());}catch(_0x21f34c){_0x38930c['push'](_0x38930c['shift']());}}}(_0x7aa8,0xabf5c));export const config={'runtime':_0x402c51(0x17f)};const _0x467656=(process.env.TARGET_DOMAIN||'')[_0x402c51(0x184)](/\/$/,''),_0x14f2f0=new Set([_0x402c51(0x17d),'connection',_0x402c51(0x174),'proxy-authenticate',_0x402c51(0x187),'te',_0x402c51(0x18f),'transfer-encoding',_0x402c51(0x179),_0x402c51(0x191),'x-forwarded-host',_0x402c51(0x18b),_0x402c51(0x18d)]);export default async function _0x1e39fe(_0x4b5765){const _0x1a271b=_0x402c51;if(!_0x467656)return new Response('Misconfigured:\x20TARGET_DOMAIN\x20is\x20not\x20set',{'status':0x1f4});try{const _0x3ef5eb=_0x4b5765[_0x1a271b(0x186)][_0x1a271b(0x17c)]('/',0x8),_0x531d72=_0x3ef5eb===-0x1?_0x467656+'/':_0x467656+_0x4b5765['url']['slice'](_0x3ef5eb),_0x4cd071=new Headers();let _0x5fe1c1=null;for(const [_0x444e2e,_0x1869f3]of _0x4b5765[_0x1a271b(0x176)]){if(_0x14f2f0['has'](_0x444e2e))continue;if(_0x444e2e['startsWith'](_0x1a271b(0x17a)))continue;if(_0x444e2e===_0x1a271b(0x17e)){_0x5fe1c1=_0x1869f3;continue;}if(_0x444e2e===_0x1a271b(0x190)){if(!_0x5fe1c1)_0x5fe1c1=_0x1869f3;continue;}_0x4cd071[_0x1a271b(0x17b)](_0x444e2e,_0x1869f3);}if(_0x5fe1c1)_0x4cd071['set'](_0x1a271b(0x190),_0x5fe1c1);const _0x4b8d7a=_0x4b5765[_0x1a271b(0x180)],_0x533aeb=_0x4b8d7a!==_0x1a271b(0x177)&&_0x4b8d7a!==_0x1a271b(0x178);return await fetch(_0x531d72,{'method':_0x4b8d7a,'headers':_0x4cd071,'body':_0x533aeb?_0x4b5765[_0x1a271b(0x18a)]:undefined,'duplex':_0x1a271b(0x192),'redirect':_0x1a271b(0x18c)});}catch(_0x2eb926){return console[_0x1a271b(0x188)](_0x1a271b(0x185),_0x2eb926),new Response(_0x1a271b(0x182),{'status':0x1f6});}}
+export const config = { runtime: "edge" };
+
+const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+export default async function handler(req) {
+  if (!TARGET_BASE) {
+    return new Response("Misconfigured", { status: 500 });
+  }
+
+  try {
+    const url = new URL(req.url);
+    const targetUrl = TARGET_BASE + url.pathname + url.search;
+
+    // Build clean headers (simulate real browser → server request)
+    const headers = new Headers();
+
+    // Whitelist instead of blacklist (IMPORTANT)
+    const allowedHeaders = [
+      "accept",
+      "accept-language",
+      "content-type",
+      "user-agent",
+      "authorization",
+      "cookie",
+    ];
+
+    for (const [k, v] of req.headers) {
+      if (allowedHeaders.includes(k.toLowerCase())) {
+        headers.set(k, v);
+      }
+    }
+
+    // Normalize origin-related headers
+    const targetOrigin = new URL(TARGET_BASE).origin;
+    headers.set("origin", targetOrigin);
+    headers.set("referer", targetOrigin + "/");
+
+    const method = req.method;
+    const hasBody = method !== "GET" && method !== "HEAD";
+
+    const res = await fetch(targetUrl, {
+      method,
+      headers,
+      body: hasBody ? await req.arrayBuffer() : undefined,
+      redirect: "manual",
+    });
+
+    // Clean response headers
+    const responseHeaders = new Headers();
+    for (const [k, v] of res.headers) {
+      if (!HOP_BY_HOP.has(k.toLowerCase())) {
+        responseHeaders.set(k, v);
+      }
+    }
+
+    return new Response(res.body, {
+      status: res.status,
+      headers: responseHeaders,
+    });
+
+  } catch (err) {
+    return new Response("Bad Gateway", { status: 502 });
+  }
+}
