@@ -1,58 +1,62 @@
 export const config = { runtime: "edge" };
 
-// 🔒 Hardcode your backend (no env-based dynamic proxying)
-const TARGET_ORIGIN = "https://example.com";
+const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
 
-// 🔒 Only allow specific paths (VERY IMPORTANT)
-const ALLOWED_PATHS = [
-  "/api/data",
-  "/api/user",
-  "/images/",
-];
+const STRIP_HEADERS = new Set([
+  "host",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "forwarded",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-port",
+]);
 
 export default async function handler(req) {
+  if (!TARGET_BASE) {
+    return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
+  }
+
   try {
-    const url = new URL(req.url);
+    const pathStart = req.url.indexOf("/", 8);
+    const targetUrl =
+      pathStart === -1 ? TARGET_BASE + "/" : TARGET_BASE + req.url.slice(pathStart);
 
-    // 🚫 Block unknown paths
-    const isAllowed = ALLOWED_PATHS.some(p =>
-      url.pathname === p || url.pathname.startsWith(p)
-    );
-
-    if (!isAllowed) {
-      return new Response("Not allowed", { status: 403 });
+    const out = new Headers();
+    let clientIp = null;
+    for (const [k, v] of req.headers) {
+      if (STRIP_HEADERS.has(k)) continue;
+      if (k.startsWith("x-vercel-")) continue;
+      if (k === "x-real-ip") {
+        clientIp = v;
+        continue;
+      }
+      if (k === "x-forwarded-for") {
+        if (!clientIp) clientIp = v;
+        continue;
+      }
+      out.set(k, v);
     }
-
-    const targetUrl = TARGET_ORIGIN + url.pathname + url.search;
-
-    // ✅ Controlled headers (not full passthrough)
-    const headers = new Headers({
-      "accept": "application/json",
-      "user-agent": req.headers.get("user-agent") || "Mozilla/5.0",
-    });
-
-    // Only forward cookies if you really need them
-    const cookie = req.headers.get("cookie");
-    if (cookie) headers.set("cookie", cookie);
+    if (clientIp) out.set("x-forwarded-for", clientIp);
 
     const method = req.method;
     const hasBody = method !== "GET" && method !== "HEAD";
 
-    const res = await fetch(targetUrl, {
+    return await fetch(targetUrl, {
       method,
-      headers,
-      body: hasBody ? await req.arrayBuffer() : undefined,
+      headers: out,
+      body: hasBody ? req.body : undefined,
+      duplex: "half",
+      redirect: "manual",
     });
-
-    // ✅ Clean response
-    return new Response(res.body, {
-      status: res.status,
-      headers: {
-        "content-type": res.headers.get("content-type") || "text/plain",
-      },
-    });
-
-  } catch (e) {
-    return new Response("Error", { status: 500 });
+  } catch (err) {
+    console.error("relay error:", err);
+    return new Response("Bad Gateway: Tunnel Failed", { status: 502 });
   }
 }
